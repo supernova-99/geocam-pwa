@@ -1,0 +1,319 @@
+/* ---------------------------------------------------------------
+   GeoCam — design tokens
+   Inspiration : instrument de géomètre (station totale / boussole
+   de terrain). Fond quasi noir, cadrans, graduations, aiguille ambre.
+----------------------------------------------------------------*/
+:root {
+  --bg: #0B0E11;
+  --panel: rgba(11, 14, 17, 0.74);
+  --panel-strong: rgba(11, 14, 17, 0.9);
+  --border: rgba(232, 230, 225, 0.16);
+  --text: #E8E6E1;
+  --text-dim: #9AA0A6;
+  --amber: #FF8A00;
+  --teal: #4FD1C5;
+  --danger: #E8564A;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-data: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* ---------------- Camera layer ---------------- */
+#video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+#captureCanvas { display: none; }
+
+/* ---------------- Top bar: compass ---------------- */
+.top-bar {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.compass-wrap {
+  position: relative;
+  width: 92px;
+  height: 92px;
+}
+
+.compass-dial {
+  width: 100%;
+  height: 100%;
+  transition: transform 0.08s linear;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+}
+
+.compass-pointer {
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 9px solid var(--amber);
+}
+
+.heading-readout {
+  font-family: var(--font-data);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.heading-readout .cardinal {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+/* ---------------- Bottom data console ---------------- */
+.bottom-console {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 14px max(14px, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 12px;
+  background: linear-gradient(to top, rgba(11, 14, 17, 0.92) 30%, rgba(11, 14, 17, 0.55) 75%, transparent 100%);
+  z-index: 5;
+}
+
+.location-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+  min-width: 0;
+}
+
+.location-panel .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--font-data);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.location-panel .row .label {
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+
+.location-panel .row .value {
+  color: var(--teal);
+}
+
+.location-panel .row .value.stale {
+  color: var(--text-dim);
+}
+
+/* ---------------- Minimap ---------------- */
+.minimap-wrap {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+  background: #14181c;
+}
+
+#minimap { width: 100%; height: 100%; }
+
+.minimap-north {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-data);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--amber);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  z-index: 610;
+}
+
+.fov-cone {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 64px;
+  height: 64px;
+  margin-left: -32px;
+  margin-top: -64px;
+  transform-origin: 50% 100%; /* pivot on the tip, at the user dot */
+  clip-path: polygon(50% 100%, 20% 0%, 80% 0%);
+  background: linear-gradient(to top, rgba(255, 138, 0, 0.55), rgba(255, 138, 0, 0));
+  pointer-events: none;
+  z-index: 601;
+  transition: transform 0.08s linear;
+}
+
+.user-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--amber);
+  border: 2px solid var(--text);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  z-index: 602;
+  pointer-events: none;
+}
+
+/* ---------------- Shutter ---------------- */
+.shutter-row {
+  position: absolute;
+  bottom: max(96px, calc(96px + env(safe-area-inset-bottom)));
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
+}
+
+#shutterBtn {
+  pointer-events: all;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 4px solid rgba(232, 230, 225, 0.35);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+#shutterBtn:active {
+  transform: scale(0.9);
+  background: var(--amber);
+}
+
+/* ---------------- Toast ---------------- */
+.toast {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---------------- Permission gate ---------------- */
+.gate {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: radial-gradient(circle at 50% 30%, #171c21 0%, var(--bg) 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+  gap: 18px;
+}
+
+.gate img { width: 84px; height: 84px; opacity: 0.95; }
+
+.gate h1 {
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.gate p {
+  color: var(--text-dim);
+  font-size: 14px;
+  max-width: 320px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.gate button {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--amber);
+  border: none;
+  border-radius: 30px;
+  padding: 13px 34px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.gate .error {
+  color: var(--danger);
+  font-size: 12.5px;
+  max-width: 300px;
+}
+
+.hidden { display: none !important; }
