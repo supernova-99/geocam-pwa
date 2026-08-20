@@ -203,6 +203,13 @@
       const activeId = activeTrack && activeTrack.getSettings().deviceId;
       const idx = availableCameras.findIndex((d) => d.deviceId === activeId);
       currentCameraIndex = idx >= 0 ? idx : 0;
+      // Diagnostic visible une seule fois au démarrage (utile en cas de doute
+      // sur le nombre de caméras réellement exposées par le téléphone/navigateur).
+      showToast(
+        videoInputs.length <= 1
+          ? "1 caméra détectée"
+          : `${videoInputs.length} caméras détectées (${availableCameras.length} arrière/externe)`
+      );
     } catch (e) {
       cameraSwitchBtn.classList.add("hidden");
     }
@@ -217,7 +224,20 @@
       const label = cam.label || `Caméra ${currentCameraIndex + 1}/${availableCameras.length}`;
       showToast(label);
     } catch (e) {
-      showToast("Impossible de basculer sur cette caméra.");
+      // Repli : certains navigateurs refusent la contrainte deviceId "exact"
+      // pour certains capteurs (OverconstrainedError). On retente en "ideal".
+      try {
+        currentStream && currentStream.getTracks().forEach((t) => t.stop());
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { ideal: cam.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        video.srcObject = currentStream;
+        await video.play();
+        showToast(cam.label || `Caméra ${currentCameraIndex + 1}/${availableCameras.length}`);
+      } catch (e2) {
+        showToast("Impossible de basculer sur cette caméra (" + e2.name + ")");
+      }
     }
   });
 
@@ -489,51 +509,52 @@
       ctx.fillText(label, compassCX, pillY + pillH / 2);
     }
 
-    // --- Minimap, en bas à droite ---
+    // --- Tableau de coordonnées, pleine largeur, tout en bas (2 colonnes × 3 lignes) ---
+    const rowH = vh * 0.03;
+    const panelH = rowH * 3 + vh * 0.016;
+    const panelX = margin;
+    const panelW = vw - margin * 2;
+    const panelY = vh - margin - panelH;
+    const colW = (panelW - vw * 0.02) / 2;
+    const colGap = vw * 0.02;
+    const leftColX = panelX;
+    const rightColX = panelX + colW + colGap;
+
+    roundedRect(ctx, panelX, panelY, panelW, panelH, 12, "rgba(11,14,17,0.74)", "rgba(232,230,225,0.16)");
+    ctx.strokeStyle = "rgba(232,230,225,0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(rightColX - colGap / 2, panelY + 10);
+    ctx.lineTo(rightColX - colGap / 2, panelY + panelH - 10);
+    ctx.stroke();
+
+    const tableRows = [
+      ["X (LV95)", swissCoords ? swissCoords.x.toFixed(2) + " m" : "--", "LAT", currentPosition ? currentPosition.lat.toFixed(6) + "°" : "--"],
+      ["Y (LV95)", swissCoords ? swissCoords.y.toFixed(2) + " m" : "--", "LON", currentPosition ? currentPosition.lon.toFixed(6) + "°" : "--"],
+      ["ALT (Bessel)", swissCoords && swissCoords.altBessel !== null ? swissCoords.altBessel.toFixed(1) + " m" : "--", "PRÉC.", currentPosition ? "± " + Math.round(currentPosition.acc) + " m" : "--"],
+    ];
+    const fs = Math.max(13, rowH * 0.58);
+    ctx.font = `${fs}px ui-monospace, Menlo, Consolas, monospace`;
+    ctx.textBaseline = "middle";
+    tableRows.forEach(([lLabel, lValue, rLabel, rValue], i) => {
+      const y = panelY + vh * 0.009 + rowH * i + rowH / 2;
+      ctx.textAlign = "left"; ctx.fillStyle = "#9AA0A6";
+      ctx.fillText(lLabel, leftColX + 14, y);
+      ctx.fillText(rLabel, rightColX + 14, y);
+      ctx.textAlign = "right"; ctx.fillStyle = "#4FD1C5";
+      ctx.fillText(lValue, leftColX + colW - 14, y);
+      ctx.fillText(rValue, rightColX + colW - 14, y);
+    });
+
+    // --- Minimap, au-dessus du tableau, alignée à droite ---
     const minimapR = vw * 0.125;
     const minimapCX = vw - margin - minimapR;
-    const minimapCY = vh - margin - minimapR;
+    const minimapCY = panelY - margin - minimapR;
     let tilesOK = true;
     if (currentPosition) {
       const { canvas: mapCanvas, tilesOK: ok } = buildMinimapCanvas(minimapR * 2, currentHeading || 0);
       tilesOK = ok;
       ctx.drawImage(mapCanvas, minimapCX - minimapR, minimapCY - minimapR, minimapR * 2, minimapR * 2);
-    }
-
-    // --- Bandeau position, en bas à gauche ---
-    const panelW = minimapCX - minimapR - margin - margin;
-    const rows = [
-      ["X (LV95)", swissCoords ? swissCoords.x.toFixed(2) + " m" : "--"],
-      ["Y (LV95)", swissCoords ? swissCoords.y.toFixed(2) + " m" : "--"],
-      ["ALT (Bessel)", swissCoords && swissCoords.altBessel !== null ? swissCoords.altBessel.toFixed(1) + " m" : "--"],
-      ["LAT", currentPosition ? currentPosition.lat.toFixed(6) + "°" : "--"],
-      ["LON", currentPosition ? currentPosition.lon.toFixed(6) + "°" : "--"],
-      ["PRÉC.", currentPosition ? "± " + Math.round(currentPosition.acc) + " m" : "--"],
-    ];
-    const rowH = vh * 0.03;
-    const panelH = rowH * rows.length + vh * 0.018;
-    const panelX = margin;
-    const panelY = vh - margin - panelH;
-    if (panelW > vw * 0.2) {
-      roundedRect(ctx, panelX, panelY, panelW, panelH, 12, "rgba(11,14,17,0.74)", "rgba(232,230,225,0.16)");
-      const fs = Math.max(13, rowH * 0.58);
-      ctx.font = `${fs}px ui-monospace, Menlo, Consolas, monospace`;
-      ctx.textBaseline = "middle";
-      rows.forEach(([label, value], i) => {
-        const y = panelY + vh * 0.011 + rowH * i + rowH / 2;
-        if (i === 3) {
-          ctx.strokeStyle = "rgba(232,230,225,0.18)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(panelX + 10, y - rowH / 2);
-          ctx.lineTo(panelX + panelW - 10, y - rowH / 2);
-          ctx.stroke();
-        }
-        ctx.textAlign = "left"; ctx.fillStyle = "#9AA0A6";
-        ctx.fillText(label, panelX + 14, y);
-        ctx.textAlign = "right"; ctx.fillStyle = "#4FD1C5";
-        ctx.fillText(value, panelX + panelW - 14, y);
-      });
     }
 
     canvas.toBlob((blob) => {

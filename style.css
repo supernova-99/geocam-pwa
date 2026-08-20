@@ -56,16 +56,17 @@ html, body {
   top: max(14px, env(safe-area-inset-top));
   left: 0;
   right: 0;
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 0 14px;
+  height: 92px;
   pointer-events: none;
   z-index: 5;
 }
 
+/* Positionnement indépendant (et non flex) : chaque élément garde sa place
+   même quand l'autre est masqué (ex. une seule caméra détectée). */
 .camera-switch-badge {
+  position: absolute;
+  top: 0;
+  left: 14px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -84,6 +85,9 @@ html, body {
 }
 
 .compass-col {
+  position: absolute;
+  top: 0;
+  right: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -132,31 +136,58 @@ html, body {
   font-weight: 600;
 }
 
-/* ---------------- Bottom data console ---------------- */
-.bottom-console {
+/* ---------------- Bas d'écran ---------------- */
+.bottom-area {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   padding: 12px 14px max(14px, env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 12px;
   background: linear-gradient(to top, rgba(11, 14, 17, 0.92) 30%, rgba(11, 14, 17, 0.55) 75%, transparent 100%);
   z-index: 5;
 }
 
-.location-panel {
+/* Rangée bouton + minimap, au-dessus du tableau de coordonnées */
+.shutter-row {
+  position: relative;
+  height: 108px; /* = diamètre de la minimap, sert de repère vertical commun */
+  margin-bottom: 12px;
+}
+
+#shutterBtn {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 4px solid rgba(232, 230, 225, 0.35);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+#shutterBtn:active {
+  transform: translateX(-50%) scale(0.9);
+  background: var(--amber);
+}
+
+/* Tableau de coordonnées : pleine largeur, 2 colonnes × 3 lignes */
+.coords-table {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 14px;
+  row-gap: 2px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 8px 14px;
   backdrop-filter: blur(6px);
-  min-width: 0;
 }
 
-.location-panel .row {
+.coords-table .row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -167,31 +198,31 @@ html, body {
   white-space: nowrap;
 }
 
-.location-panel .row .label {
+.coords-table .row:nth-child(even) {
+  border-left: 1px solid rgba(232, 230, 225, 0.14);
+  padding-left: 14px;
+}
+
+.coords-table .row .label {
   color: var(--text-dim);
   letter-spacing: 0.03em;
 }
 
-.location-panel .row .value {
+.coords-table .row .value {
   color: var(--teal);
-}
-
-.location-panel .row.row-sep {
-  margin-top: 4px;
-  padding-top: 5px;
-  border-top: 1px solid rgba(232, 230, 225, 0.14);
 }
 
 /* ---------------- Minimap ---------------- */
 .minimap-wrap {
-  position: relative;
+  position: absolute;
+  right: 0;
+  bottom: 0;
   width: 108px;
   height: 108px;
   border-radius: 50%;
   overflow: hidden;
   border: 2px solid var(--border);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-  flex-shrink: 0;
   background: #14181c;
   cursor: pointer;
   pointer-events: all;
@@ -242,35 +273,6 @@ html, body {
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
   z-index: 602;
   pointer-events: none;
-}
-
-/* ---------------- Shutter ---------------- */
-.shutter-row {
-  position: absolute;
-  bottom: max(96px, calc(96px + env(safe-area-inset-bottom)));
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  z-index: 6;
-  pointer-events: none;
-}
-
-#shutterBtn {
-  pointer-events: all;
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  background: var(--text);
-  border: 4px solid rgba(232, 230, 225, 0.35);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
-  cursor: pointer;
-  transition: transform 0.08s ease;
-}
-
-#shutterBtn:active {
-  transform: scale(0.9);
-  background: var(--amber);
 }
 
 /* ---------------- Toast ---------------- */

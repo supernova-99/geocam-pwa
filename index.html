@@ -54,27 +54,25 @@
   <!-- ===================== Toast ===================== -->
   <div class="toast" id="toast"></div>
 
-  <!-- ===================== Console bas ===================== -->
-  <div class="bottom-console">
-    <div class="location-panel">
+  <!-- ===================== Bas d'écran : bouton + minimap, puis tableau de coordonnées ===================== -->
+  <div class="bottom-area">
+    <div class="shutter-row">
+      <button id="shutterBtn" aria-label="Prendre la photo"></button>
+      <div class="minimap-wrap">
+        <div id="minimap"></div>
+        <div class="fov-cone" id="fovCone"></div>
+        <div class="user-dot"></div>
+        <div class="minimap-north">N</div>
+      </div>
+    </div>
+    <div class="coords-table">
       <div class="row"><span class="label">X (LV95)</span><span class="value" id="xVal">--</span></div>
+      <div class="row"><span class="label">LAT</span><span class="value" id="latVal">--</span></div>
       <div class="row"><span class="label">Y (LV95)</span><span class="value" id="yVal">--</span></div>
-      <div class="row"><span class="label">ALT (Bessel)</span><span class="value" id="altBesselVal">--</span></div>
-      <div class="row row-sep"><span class="label">LAT</span><span class="value" id="latVal">--</span></div>
       <div class="row"><span class="label">LON</span><span class="value" id="lonVal">--</span></div>
+      <div class="row"><span class="label">ALT (Bessel)</span><span class="value" id="altBesselVal">--</span></div>
       <div class="row"><span class="label">PRÉC.</span><span class="value" id="accVal">--</span></div>
     </div>
-    <div class="minimap-wrap">
-      <div id="minimap"></div>
-      <div class="fov-cone" id="fovCone"></div>
-      <div class="user-dot"></div>
-      <div class="minimap-north">N</div>
-    </div>
-  </div>
-
-  <!-- ===================== Déclencheur ===================== -->
-  <div class="shutter-row">
-    <button id="shutterBtn" aria-label="Prendre la photo"></button>
   </div>
 
   <!-- ===================== Écran de permissions ===================== -->
