@@ -203,13 +203,6 @@
       const activeId = activeTrack && activeTrack.getSettings().deviceId;
       const idx = availableCameras.findIndex((d) => d.deviceId === activeId);
       currentCameraIndex = idx >= 0 ? idx : 0;
-      // Diagnostic visible une seule fois au démarrage (utile en cas de doute
-      // sur le nombre de caméras réellement exposées par le téléphone/navigateur).
-      showToast(
-        videoInputs.length <= 1
-          ? "1 caméra détectée"
-          : `${videoInputs.length} caméras détectées (${availableCameras.length} arrière/externe)`
-      );
     } catch (e) {
       cameraSwitchBtn.classList.add("hidden");
     }
