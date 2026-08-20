@@ -21,10 +21,15 @@
   <video id="video" autoplay playsinline muted></video>
   <canvas id="captureCanvas"></canvas>
 
-  <!-- ===================== Logo + Boussole (haut) ===================== -->
+  <!-- ===================== Boussole (haut droite) ===================== -->
   <div class="top-bar">
-    <div class="logo-badge">
-      <img src="icons/logo.png" alt="Bureau d'études Rossier SA" />
+    <div class="camera-switch-badge hidden" id="cameraSwitchBtn" aria-label="Changer de caméra">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#E8E6E1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 2l4 4-4 4" />
+        <path d="M3 12v-2a4 4 0 0 1 4-4h14" />
+        <path d="M7 22l-4-4 4-4" />
+        <path d="M21 12v2a4 4 0 0 1-4 4H3" />
+      </svg>
     </div>
     <div class="compass-col">
       <div class="compass-wrap">
@@ -52,9 +57,11 @@
   <!-- ===================== Console bas ===================== -->
   <div class="bottom-console">
     <div class="location-panel">
-      <div class="row"><span class="label">LAT</span><span class="value" id="latVal">--</span></div>
+      <div class="row"><span class="label">X (LV95)</span><span class="value" id="xVal">--</span></div>
+      <div class="row"><span class="label">Y (LV95)</span><span class="value" id="yVal">--</span></div>
+      <div class="row"><span class="label">ALT (Bessel)</span><span class="value" id="altBesselVal">--</span></div>
+      <div class="row row-sep"><span class="label">LAT</span><span class="value" id="latVal">--</span></div>
       <div class="row"><span class="label">LON</span><span class="value" id="lonVal">--</span></div>
-      <div class="row"><span class="label">ALT</span><span class="value" id="altVal">--</span></div>
       <div class="row"><span class="label">PRÉC.</span><span class="value" id="accVal">--</span></div>
     </div>
     <div class="minimap-wrap">

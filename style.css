@@ -65,20 +65,22 @@ html, body {
   z-index: 5;
 }
 
-.logo-badge {
+.camera-switch-badge {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 7px 10px;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
+  justify-content: center;
+  pointer-events: all;
+  cursor: pointer;
 }
 
-.logo-badge img {
-  height: 30px;
-  width: auto;
-  display: block;
+.camera-switch-badge:active {
+  background: var(--panel-strong);
 }
 
 .compass-col {
@@ -174,8 +176,10 @@ html, body {
   color: var(--teal);
 }
 
-.location-panel .row .value.stale {
-  color: var(--text-dim);
+.location-panel .row.row-sep {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(232, 230, 225, 0.14);
 }
 
 /* ---------------- Minimap ---------------- */

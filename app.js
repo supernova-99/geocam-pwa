@@ -17,9 +17,11 @@
   const minimapWrap = document.querySelector(".minimap-wrap");
   const minimapEl = document.getElementById("minimap");
 
+  const xVal = document.getElementById("xVal");
+  const yVal = document.getElementById("yVal");
+  const altBesselVal = document.getElementById("altBesselVal");
   const latVal = document.getElementById("latVal");
   const lonVal = document.getElementById("lonVal");
-  const altVal = document.getElementById("altVal");
   const accVal = document.getElementById("accVal");
 
   const compassDial = document.getElementById("compassDial");
@@ -30,13 +32,57 @@
   // ---------- État courant ----------
   let currentPosition = null; // {lat, lon, alt, acc}
   let currentHeading = null;  // degrés 0-360, 0 = Nord
+  let swissCoords = null;     // {x, y, altBessel} — calculés via l'API REFRAME
   let map = null;
   let currentTileLayer = null;
   let tileErrorShown = false;
 
-  // ---------- Logo (préchargé pour l'incruster dans les photos) ----------
-  const logoImg = new Image();
-  logoImg.src = "icons/logo.png";
+  // ---------- Conversion LV95 / Bessel via l'API REFRAME de swisstopo ----------
+  // Doc : https://geodesy.geo.admin.ch/reframe/  (Report 16-03, swisstopo, 2016)
+  let lastReframeCall = 0;
+  let lastReframeLat = null, lastReframeLon = null;
+  let reframeErrorShown = false;
+
+  async function updateSwissCoords(lat, lon, wgsAlt) {
+    const now = Date.now();
+    const movedEnough =
+      lastReframeLat === null ||
+      Math.abs(lat - lastReframeLat) > 0.00001 ||
+      Math.abs(lon - lastReframeLon) > 0.00001;
+    if (!movedEnough || now - lastReframeCall < 2500) return; // throttle : max 1 appel / 2.5 s
+    lastReframeCall = now;
+    lastReframeLat = lat;
+    lastReframeLon = lon;
+
+    let url = `https://geodesy.geo.admin.ch/reframe/wgs84tolv95?easting=${lon}&northing=${lat}&format=json`;
+    if (wgsAlt !== null && wgsAlt !== undefined) url += `&altitude=${wgsAlt}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      swissCoords = {
+        x: parseFloat(data.easting),
+        y: parseFloat(data.northing),
+        altBessel: data.altitude !== undefined ? parseFloat(data.altitude) : null,
+      };
+      xVal.textContent = swissCoords.x.toFixed(2) + " m";
+      yVal.textContent = swissCoords.y.toFixed(2) + " m";
+      altBesselVal.textContent = swissCoords.altBessel !== null ? swissCoords.altBessel.toFixed(1) + " m" : "--";
+      reframeErrorShown = false;
+    } catch (e) {
+      if (!reframeErrorShown) {
+        reframeErrorShown = true;
+        showToast("Coordonnées LV95/Bessel indisponibles (API swisstopo)");
+      }
+    }
+  }
+
+  // ---------- Sélecteur de caméra ----------
+  const cameraSwitchBtn = document.getElementById("cameraSwitchBtn");
+  let availableCameras = []; // deviceId list, caméras arrière/externes uniquement
+  let currentCameraIndex = 0;
+  let currentStream = null;
 
   // ---------- Fonds de carte disponibles ----------
   // OSM : projection standard Web Mercator (celle de Leaflet par défaut).
@@ -122,14 +168,58 @@
   }
 
   // ---------- Caméra ----------
-  async function startCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false,
-    });
-    video.srcObject = stream;
+  async function openCameraStream(deviceId) {
+    if (currentStream) {
+      currentStream.getTracks().forEach((t) => t.stop());
+    }
+    const videoConstraints = deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+    currentStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+    video.srcObject = currentStream;
     await video.play();
   }
+
+  async function startCamera() {
+    await openCameraStream(null); // démarrage : caméra arrière par défaut
+    await detectCameras();
+  }
+
+  async function detectCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      // On exclut les caméras avant / selfie (détection par le libellé, disponible
+      // une fois la permission caméra accordée). Tout le reste (arrière, grand-angle,
+      // téléobjectif, caméras externes…) est proposé au balayage.
+      availableCameras = videoInputs.filter((d) => {
+        const label = (d.label || "").toLowerCase();
+        return !(label.includes("front") || label.includes("user") || label.includes("selfie") || label.includes("face"));
+      });
+      if (availableCameras.length === 0) availableCameras = videoInputs; // repli si aucun libellé exploitable
+      cameraSwitchBtn.classList.toggle("hidden", availableCameras.length <= 1);
+      // Aligne l'index courant sur le device réellement actif au démarrage.
+      const activeTrack = currentStream && currentStream.getVideoTracks()[0];
+      const activeId = activeTrack && activeTrack.getSettings().deviceId;
+      const idx = availableCameras.findIndex((d) => d.deviceId === activeId);
+      currentCameraIndex = idx >= 0 ? idx : 0;
+    } catch (e) {
+      cameraSwitchBtn.classList.add("hidden");
+    }
+  }
+
+  cameraSwitchBtn.addEventListener("click", async () => {
+    if (availableCameras.length <= 1) return;
+    currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+    const cam = availableCameras[currentCameraIndex];
+    try {
+      await openCameraStream(cam.deviceId);
+      const label = cam.label || `Caméra ${currentCameraIndex + 1}/${availableCameras.length}`;
+      showToast(label);
+    } catch (e) {
+      showToast("Impossible de basculer sur cette caméra.");
+    }
+  });
 
   // ---------- Géolocalisation ----------
   function startGeolocation() {
@@ -140,9 +230,9 @@
         currentPosition = { lat: latitude, lon: longitude, alt: altitude, acc: accuracy };
         latVal.textContent = formatCoord(latitude);
         lonVal.textContent = formatCoord(longitude);
-        altVal.textContent = altitude === null ? "--" : Math.round(altitude) + " m";
         accVal.textContent = "± " + Math.round(accuracy) + " m";
         updateMinimapPosition(latitude, longitude);
+        updateSwissCoords(latitude, longitude, altitude);
       },
       (err) => showToast("Position indisponible : " + err.message),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
@@ -380,14 +470,6 @@
 
     const margin = vw * 0.03;
 
-    // --- Logo, en haut à gauche ---
-    if (logoImg.complete && logoImg.naturalWidth) {
-      const logoH = vh * 0.042;
-      const logoW = logoH * (logoImg.naturalWidth / logoImg.naturalHeight);
-      roundedRect(ctx, margin - 10, margin - 8, logoW + 20, logoH + 16, 10, "rgba(11,14,17,0.72)", "rgba(232,230,225,0.16)");
-      ctx.drawImage(logoImg, margin, margin, logoW, logoH);
-    }
-
     // --- Boussole, en haut à droite ---
     const compassR = vw * 0.1;
     const compassCX = vw - margin - compassR;
@@ -421,9 +503,11 @@
     // --- Bandeau position, en bas à gauche ---
     const panelW = minimapCX - minimapR - margin - margin;
     const rows = [
+      ["X (LV95)", swissCoords ? swissCoords.x.toFixed(2) + " m" : "--"],
+      ["Y (LV95)", swissCoords ? swissCoords.y.toFixed(2) + " m" : "--"],
+      ["ALT (Bessel)", swissCoords && swissCoords.altBessel !== null ? swissCoords.altBessel.toFixed(1) + " m" : "--"],
       ["LAT", currentPosition ? currentPosition.lat.toFixed(6) + "°" : "--"],
       ["LON", currentPosition ? currentPosition.lon.toFixed(6) + "°" : "--"],
-      ["ALT", currentPosition && currentPosition.alt != null ? Math.round(currentPosition.alt) + " m" : "--"],
       ["PRÉC.", currentPosition ? "± " + Math.round(currentPosition.acc) + " m" : "--"],
     ];
     const rowH = vh * 0.03;
@@ -437,6 +521,14 @@
       ctx.textBaseline = "middle";
       rows.forEach(([label, value], i) => {
         const y = panelY + vh * 0.011 + rowH * i + rowH / 2;
+        if (i === 3) {
+          ctx.strokeStyle = "rgba(232,230,225,0.18)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(panelX + 10, y - rowH / 2);
+          ctx.lineTo(panelX + panelW - 10, y - rowH / 2);
+          ctx.stroke();
+        }
         ctx.textAlign = "left"; ctx.fillStyle = "#9AA0A6";
         ctx.fillText(label, panelX + 14, y);
         ctx.textAlign = "right"; ctx.fillStyle = "#4FD1C5";
