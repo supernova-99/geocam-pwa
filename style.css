@@ -57,11 +57,35 @@ html, body {
   left: 0;
   right: 0;
   display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0 14px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.logo-badge {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 7px 10px;
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+}
+
+.logo-badge img {
+  height: 30px;
+  width: auto;
+  display: block;
+}
+
+.compass-col {
+  display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  pointer-events: none;
-  z-index: 5;
 }
 
 .compass-wrap {
@@ -165,6 +189,8 @@ html, body {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
   background: #14181c;
+  cursor: pointer;
+  pointer-events: all;
 }
 
 #minimap { width: 100%; height: 100%; }

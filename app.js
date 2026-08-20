@@ -1,7 +1,7 @@
 /* =====================================================================
    GeoCam — logique applicative
    Caméra (getUserMedia) + Géolocalisation + Boussole (DeviceOrientation)
-   + Minimap Leaflet/OSM orientée Nord fixe avec cône de visée rotatif.
+   + Minimap (OpenStreetMap ↔ ASIT-VD EPSG:2056) + capture fidèle à l'UI.
 ===================================================================== */
 (() => {
   "use strict";
@@ -14,6 +14,8 @@
   const gateError = document.getElementById("gateError");
   const shutterBtn = document.getElementById("shutterBtn");
   const toastEl = document.getElementById("toast");
+  const minimapWrap = document.querySelector(".minimap-wrap");
+  const minimapEl = document.getElementById("minimap");
 
   const latVal = document.getElementById("latVal");
   const lonVal = document.getElementById("lonVal");
@@ -29,10 +31,60 @@
   let currentPosition = null; // {lat, lon, alt, acc}
   let currentHeading = null;  // degrés 0-360, 0 = Nord
   let map = null;
-  let mapReady = false;
-  let firstFix = true;
+  let currentTileLayer = null;
+  let tileErrorShown = false;
 
-  // ---------- Graduations de la boussole (tous les 30°) ----------
+  // ---------- Logo (préchargé pour l'incruster dans les photos) ----------
+  const logoImg = new Image();
+  logoImg.src = "icons/logo.png";
+
+  // ---------- Fonds de carte disponibles ----------
+  // OSM : projection standard Web Mercator (celle de Leaflet par défaut).
+  // ASIT-VD : grille officielle suisse EPSG:2056 (LV95), 30 niveaux,
+  // origine et résolutions lues directement dans le GetCapabilities du
+  // service (https://wmts.asit-asso.ch/wmts/1.0.0/WMTSCapabilities.xml).
+  proj4.defs(
+    "EPSG:2056",
+    "+proj=somerc +lat_0=46.95240555555556 +lon_0=7.439583333333333 +k_0=1 +x_0=2600000 +y_0=1200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs"
+  );
+  const SWISS_RESOLUTIONS = [
+    4000, 3750, 3500, 3250, 3000, 2750, 2500, 2250, 2000, 1750, 1500, 1250,
+    1000, 750, 650, 500, 250, 100, 50, 20, 10, 5, 2.5, 2, 1.5, 1, 0.5, 0.25,
+    0.1, 0.05,
+  ];
+  const SWISS_ORIGIN = [2420000, 1350000];
+  const swissCRS = new L.Proj.CRS("EPSG:2056", proj4.defs("EPSG:2056"), {
+    resolutions: SWISS_RESOLUTIONS,
+    origin: SWISS_ORIGIN,
+    bounds: L.bounds([2420000, 130000], [2900000, 1350000]),
+  });
+
+  const BASEMAPS = {
+    osm: {
+      label: "OpenStreetMap",
+      crs: L.CRS.EPSG3857,
+      zoom: 18,
+      makeLayer: () =>
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          subdomains: "abc",
+          crossOrigin: "anonymous",
+        }),
+    },
+    asitvd: {
+      label: "ASIT-VD — cadastral",
+      crs: swissCRS,
+      zoom: 25,
+      makeLayer: () =>
+        L.tileLayer(
+          "https://wmts.asit-asso.ch/wmts/1.0.0/asitvd.fond_cadastral/default/default/0/2056/{z}/{y}/{x}.png",
+          { maxZoom: 29, minZoom: 0, crossOrigin: "anonymous" }
+        ),
+    },
+  };
+  let currentBasemap = "osm";
+
+  // ---------- Graduations de la boussole (tous les 30°), une fois ----------
   (function drawTicks() {
     const ticksGroup = document.getElementById("ticks");
     const cx = 50, cy = 50, rOuter = 47, rInner = 41;
@@ -92,16 +144,25 @@
         accVal.textContent = "± " + Math.round(accuracy) + " m";
         updateMinimapPosition(latitude, longitude);
       },
-      (err) => {
-        showToast("Position indisponible : " + err.message);
-      },
+      (err) => showToast("Position indisponible : " + err.message),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
     );
   }
 
-  // ---------- Minimap (Leaflet / OpenStreetMap, toujours orientée Nord) ----------
-  function initMinimap(lat, lon) {
-    map = L.map("minimap", {
+  // ---------- Minimap ----------
+  // Le CRS (projection) est fixé à la création de la carte Leaflet ; comme
+  // OSM (Web Mercator) et ASIT-VD (EPSG:2056) utilisent des projections
+  // différentes, changer de fond de carte recrée la carte plutôt que de
+  // simplement permuter la couche de tuiles.
+  function buildMap(basemapKey, lat, lon) {
+    if (map) {
+      map.remove();
+      map = null;
+    }
+    tileErrorShown = false;
+    const cfg = BASEMAPS[basemapKey];
+    map = L.map(minimapEl, {
+      crs: cfg.crs,
       zoomControl: false,
       attributionControl: false,
       dragging: false,
@@ -110,48 +171,52 @@
       touchZoom: false,
       keyboard: false,
       tap: false,
-    }).setView([lat, lon], 18);
+      inertia: false,
+    }).setView([lat, lon], cfg.zoom);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      subdomains: "abc",
-    }).addTo(map);
-
-    mapReady = true;
+    currentTileLayer = cfg.makeLayer().addTo(map);
+    currentTileLayer.on("tileerror", () => {
+      if (tileErrorShown) return;
+      tileErrorShown = true;
+      showToast(
+        basemapKey === "asitvd"
+          ? "Tuiles ASIT-VD inaccessibles (droits d'accès ASIT ?)"
+          : "Tuiles de carte inaccessibles (connexion ?)"
+      );
+    });
   }
 
   function updateMinimapPosition(lat, lon) {
-    if (!mapReady) {
-      initMinimap(lat, lon);
+    if (!map) {
+      buildMap(currentBasemap, lat, lon);
       return;
     }
-    map.panTo([lat, lon], { animate: firstFix === false });
-    firstFix = false;
+    map.panTo([lat, lon], { animate: true });
   }
+
+  minimapWrap.addEventListener("click", () => {
+    currentBasemap = currentBasemap === "osm" ? "asitvd" : "osm";
+    showToast("Fond de carte : " + BASEMAPS[currentBasemap].label);
+    if (currentPosition) {
+      buildMap(currentBasemap, currentPosition.lat, currentPosition.lon);
+    }
+  });
 
   // ---------- Boussole ----------
   function updateCompassUI(heading) {
     currentHeading = heading;
-    // Le cadran tourne dans le sens opposé au cap pour que "N" pointe
-    // vers le vrai Nord ; le repère fixe en haut représente l'axe caméra.
     compassDial.style.transform = `rotate(${-heading}deg)`;
     headingVal.textContent = Math.round(heading) + "°";
     cardinalVal.textContent = cardinalFromHeading(heading);
-    // Le cône sur la minimap (orientée Nord fixe) tourne, lui, dans le
-    // sens direct : il représente la direction visée sur une carte Nord-up.
     fovCone.style.transform = `rotate(${heading}deg)`;
   }
 
   function handleOrientation(event) {
     let heading = null;
     if (typeof event.webkitCompassHeading === "number") {
-      // iOS Safari : déjà un cap absolu par rapport au Nord magnétique.
-      heading = event.webkitCompassHeading;
-    } else if (event.absolute && event.alpha !== null) {
-      heading = 360 - event.alpha;
+      heading = event.webkitCompassHeading; // iOS Safari : cap absolu déjà fourni
     } else if (event.alpha !== null) {
-      // Fallback : peut dériver sans capteur "absolute", mais reste utile.
-      heading = 360 - event.alpha;
+      heading = 360 - event.alpha; // Android (absolute) et repli générique
     }
     if (heading === null || isNaN(heading)) return;
     heading = (heading + 360) % 360;
@@ -161,7 +226,6 @@
   async function startCompass() {
     const DOE = window.DeviceOrientationEvent;
     if (DOE && typeof DOE.requestPermission === "function") {
-      // iOS 13+ : permission explicite requise, déclenchée par un geste utilisateur.
       const res = await DOE.requestPermission();
       if (res !== "granted") throw new Error("Permission boussole refusée.");
     }
@@ -169,15 +233,142 @@
     window.addEventListener(eventName, handleOrientation, true);
   }
 
-  // ---------- Capture photo ----------
-  function buildOverlayText() {
-    if (!currentPosition) return "Position en cours d'acquisition…";
-    const { lat, lon, alt, acc } = currentPosition;
-    const headingTxt = currentHeading === null ? "--" : `${Math.round(currentHeading)}° ${cardinalFromHeading(currentHeading)}`;
-    const altTxt = alt === null || alt === undefined ? "--" : `${Math.round(alt)} m`;
-    return `${lat.toFixed(6)}°, ${lon.toFixed(6)}°  •  alt ${altTxt}  •  ±${Math.round(acc)} m  •  cap ${headingTxt}`;
+  // ---------- Dessin (utilitaires canvas) ----------
+  function roundedRect(ctx, x, y, w, h, r, fill, stroke) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = stroke; ctx.stroke(); }
   }
 
+  function drawCompassOnCanvas(ctx, cx, cy, r, heading) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(11,14,17,0.78)";
+    ctx.fill();
+    ctx.lineWidth = r * 0.035;
+    ctx.strokeStyle = "rgba(232,230,225,0.3)";
+    ctx.stroke();
+
+    ctx.save();
+    ctx.rotate((-heading * Math.PI) / 180);
+    ctx.strokeStyle = "#4FD1C5";
+    ctx.lineWidth = r * 0.035;
+    for (let deg = 0; deg < 360; deg += 30) {
+      const a = (deg * Math.PI) / 180;
+      const x1 = Math.sin(a) * r * 0.86, y1 = -Math.cos(a) * r * 0.86;
+      const x2 = Math.sin(a) * r * 0.98, y2 = -Math.cos(a) * r * 0.98;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.font = `700 ${Math.round(r * 0.26)}px ui-monospace, Menlo, Consolas, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#FF8A00"; ctx.fillText("N", 0, -r * 0.72);
+    ctx.fillStyle = "#E8E6E1";
+    ctx.fillText("E", r * 0.72, 0);
+    ctx.fillText("S", 0, r * 0.72);
+    ctx.fillText("O", -r * 0.72, 0);
+    ctx.restore();
+
+    // Repère fixe = direction de la caméra
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.04);
+    ctx.lineTo(-r * 0.15, -r * 0.78);
+    ctx.lineTo(r * 0.15, -r * 0.78);
+    ctx.closePath();
+    ctx.fillStyle = "#FF8A00";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Composite minimap dessiné sur un canvas SÉPARÉ, pour pouvoir détecter
+  // un éventuel canvas "souillé" (tuiles cross-origin sans CORS) sans faire
+  // échouer la capture de la photo entière.
+  function buildMinimapCanvas(diameter, heading) {
+    const off = document.createElement("canvas");
+    off.width = diameter;
+    off.height = diameter;
+    const octx = off.getContext("2d");
+    const r = diameter / 2;
+
+    function paint(withTiles) {
+      octx.clearRect(0, 0, diameter, diameter);
+      octx.save();
+      octx.beginPath();
+      octx.arc(r, r, r, 0, Math.PI * 2);
+      octx.clip();
+      octx.fillStyle = "#14181c";
+      octx.fillRect(0, 0, diameter, diameter);
+      if (withTiles) {
+        const mapRect = minimapEl.getBoundingClientRect();
+        const tiles = minimapEl.querySelectorAll("img.leaflet-tile-loaded");
+        tiles.forEach((img) => {
+          const rect = img.getBoundingClientRect();
+          const relX = (rect.left - mapRect.left) / mapRect.width;
+          const relY = (rect.top - mapRect.top) / mapRect.height;
+          const relW = rect.width / mapRect.width;
+          const relH = rect.height / mapRect.height;
+          try {
+            octx.drawImage(img, relX * diameter, relY * diameter, relW * diameter, relH * diameter);
+          } catch (e) { /* tuile individuelle illisible : ignorée */ }
+        });
+      }
+      // Cône de visée + point de position (vectoriel, jamais "souillé")
+      octx.save();
+      octx.translate(r, r);
+      octx.rotate((heading * Math.PI) / 180);
+      octx.beginPath();
+      octx.moveTo(0, 0);
+      octx.lineTo(-r * 0.5, -r);
+      octx.lineTo(r * 0.5, -r);
+      octx.closePath();
+      const grad = octx.createLinearGradient(0, 0, 0, -r);
+      grad.addColorStop(0, "rgba(255,138,0,0.55)");
+      grad.addColorStop(1, "rgba(255,138,0,0)");
+      octx.fillStyle = grad;
+      octx.fill();
+      octx.restore();
+      octx.beginPath();
+      octx.arc(r, r, r * 0.09, 0, Math.PI * 2);
+      octx.fillStyle = "#FF8A00";
+      octx.fill();
+      octx.lineWidth = r * 0.03;
+      octx.strokeStyle = "#E8E6E1";
+      octx.stroke();
+      octx.restore();
+
+      // Bordure + repère Nord
+      octx.beginPath();
+      octx.arc(r, r, r * 0.97, 0, Math.PI * 2);
+      octx.lineWidth = r * 0.05;
+      octx.strokeStyle = "rgba(232,230,225,0.35)";
+      octx.stroke();
+      octx.fillStyle = "#FF8A00";
+      octx.font = `700 ${Math.round(r * 0.2)}px ui-monospace, Menlo, Consolas, monospace`;
+      octx.textAlign = "center";
+      octx.textBaseline = "middle";
+      octx.fillText("N", r, r * 0.16);
+    }
+
+    paint(true);
+    let tilesOK = true;
+    try {
+      octx.getImageData(0, 0, 1, 1); // déclenche une SecurityError si souillé
+    } catch (e) {
+      tilesOK = false;
+      paint(false); // on redessine proprement, sans les tuiles
+    }
+    return { canvas: off, tilesOK };
+  }
+
+  // ---------- Capture photo (composite fidèle à l'aperçu) ----------
   function capturePhoto() {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) { showToast("Caméra pas encore prête."); return; }
@@ -187,15 +378,71 @@
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, vw, vh);
 
-    // Bandeau d'informations "brûlé" en bas de l'image, comme un instrument de terrain.
-    const bandH = Math.round(vh * 0.055);
-    ctx.fillStyle = "rgba(11,14,17,0.72)";
-    ctx.fillRect(0, vh - bandH, vw, bandH);
-    ctx.fillStyle = "#E8E6E1";
-    const fontSize = Math.max(14, Math.round(bandH * 0.42));
-    ctx.font = `${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
-    ctx.textBaseline = "middle";
-    ctx.fillText(buildOverlayText(), Math.round(vw * 0.02), vh - bandH / 2);
+    const margin = vw * 0.03;
+
+    // --- Logo, en haut à gauche ---
+    if (logoImg.complete && logoImg.naturalWidth) {
+      const logoH = vh * 0.042;
+      const logoW = logoH * (logoImg.naturalWidth / logoImg.naturalHeight);
+      roundedRect(ctx, margin - 10, margin - 8, logoW + 20, logoH + 16, 10, "rgba(11,14,17,0.72)", "rgba(232,230,225,0.16)");
+      ctx.drawImage(logoImg, margin, margin, logoW, logoH);
+    }
+
+    // --- Boussole, en haut à droite ---
+    const compassR = vw * 0.1;
+    const compassCX = vw - margin - compassR;
+    const compassCY = margin + compassR;
+    if (currentHeading !== null) {
+      drawCompassOnCanvas(ctx, compassCX, compassCY, compassR, currentHeading);
+      const label = `${cardinalFromHeading(currentHeading)} ${Math.round(currentHeading)}°`;
+      ctx.font = `600 ${Math.round(compassR * 0.32)}px ui-monospace, Menlo, Consolas, monospace`;
+      const textW = ctx.measureText(label).width;
+      const pillW = textW + compassR * 0.6;
+      const pillH = compassR * 0.5;
+      const pillY = compassCY + compassR + vh * 0.012;
+      roundedRect(ctx, compassCX - pillW / 2, pillY, pillW, pillH, pillH / 2, "rgba(11,14,17,0.74)", "rgba(232,230,225,0.16)");
+      ctx.fillStyle = "#E8E6E1";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, compassCX, pillY + pillH / 2);
+    }
+
+    // --- Minimap, en bas à droite ---
+    const minimapR = vw * 0.125;
+    const minimapCX = vw - margin - minimapR;
+    const minimapCY = vh - margin - minimapR;
+    let tilesOK = true;
+    if (currentPosition) {
+      const { canvas: mapCanvas, tilesOK: ok } = buildMinimapCanvas(minimapR * 2, currentHeading || 0);
+      tilesOK = ok;
+      ctx.drawImage(mapCanvas, minimapCX - minimapR, minimapCY - minimapR, minimapR * 2, minimapR * 2);
+    }
+
+    // --- Bandeau position, en bas à gauche ---
+    const panelW = minimapCX - minimapR - margin - margin;
+    const rows = [
+      ["LAT", currentPosition ? currentPosition.lat.toFixed(6) + "°" : "--"],
+      ["LON", currentPosition ? currentPosition.lon.toFixed(6) + "°" : "--"],
+      ["ALT", currentPosition && currentPosition.alt != null ? Math.round(currentPosition.alt) + " m" : "--"],
+      ["PRÉC.", currentPosition ? "± " + Math.round(currentPosition.acc) + " m" : "--"],
+    ];
+    const rowH = vh * 0.03;
+    const panelH = rowH * rows.length + vh * 0.018;
+    const panelX = margin;
+    const panelY = vh - margin - panelH;
+    if (panelW > vw * 0.2) {
+      roundedRect(ctx, panelX, panelY, panelW, panelH, 12, "rgba(11,14,17,0.74)", "rgba(232,230,225,0.16)");
+      const fs = Math.max(13, rowH * 0.58);
+      ctx.font = `${fs}px ui-monospace, Menlo, Consolas, monospace`;
+      ctx.textBaseline = "middle";
+      rows.forEach(([label, value], i) => {
+        const y = panelY + vh * 0.011 + rowH * i + rowH / 2;
+        ctx.textAlign = "left"; ctx.fillStyle = "#9AA0A6";
+        ctx.fillText(label, panelX + 14, y);
+        ctx.textAlign = "right"; ctx.fillStyle = "#4FD1C5";
+        ctx.fillText(value, panelX + panelW - 14, y);
+      });
+    }
 
     canvas.toBlob((blob) => {
       if (!blob) { showToast("Échec de la capture."); return; }
@@ -210,13 +457,13 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-      showToast("Photo enregistrée dans Téléchargements");
+      showToast(tilesOK ? "Photo enregistrée dans Téléchargements" : "Photo enregistrée (carte non intégrée : accès restreint)");
     }, "image/jpeg", 0.92);
   }
 
   shutterBtn.addEventListener("click", capturePhoto);
 
-  // ---------- Démarrage (déclenché par un geste utilisateur, requis par iOS/Android) ----------
+  // ---------- Démarrage (geste utilisateur requis par iOS/Android) ----------
   startBtn.addEventListener("click", async () => {
     startBtn.disabled = true;
     gateError.classList.add("hidden");
