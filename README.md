@@ -1,6 +1,6 @@
 # GeoCam
 
-Appareil photo web (PWA) pour Bureau d'études Rossier SA, avec :
+Appareil photo web (PWA) avec :
 - une **boussole** en haut à droite (cadran + lecture en degrés et point cardinal) ;
 - un **sélecteur de caméra** en haut à gauche (visible seulement si le téléphone expose plusieurs caméras arrière/externes au navigateur) ;
 - un **bouton de prise de vue** centré, avec une **minimap ronde** à sa droite, orientée Nord fixe, basculable entre **OpenStreetMap** et **ASIT-VD** (cadastre vaudois, EPSG:2056) d'un tap ;
