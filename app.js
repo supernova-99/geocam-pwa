@@ -574,9 +574,13 @@
     startBtn.disabled = true;
     gateError.classList.add("hidden");
     try {
+      // Sur iOS Safari, DeviceOrientationEvent.requestPermission() doit être
+      // appelé en tout premier, au plus près du clic : dès qu'une autre
+      // demande de permission (caméra, géoloc) passe avant, iOS considère
+      // le "geste utilisateur" expiré et refuse la boussole.
+      await startCompass();
       await startCamera();
       startGeolocation();
-      await startCompass();
       gate.classList.add("hidden");
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("sw.js").catch(() => {});
